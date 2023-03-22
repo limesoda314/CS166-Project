@@ -24,6 +24,8 @@ import java.io.InputStreamReader;
 import java.util.List;
 import java.util.ArrayList;
 import java.lang.Math;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 /**
  * This class defines a simple embedded SQL utility class that is designed to
@@ -34,6 +36,8 @@ public class Hotel {
 
    // reference to physical database connection.
    private Connection _connection = null;
+
+   private int _authorisedUser = -1;
 
    // handling the keyboard inputs through a BufferedReader
    // This variable can be global for convenience.
@@ -278,6 +282,7 @@ public class Hotel {
             }//end switch
             if (authorisedUser != null) {
               boolean usermenu = true;
+              esql._authorisedUser = Integer.parseInt(authorisedUser);
               while(usermenu) {
                 System.out.println("MAIN MENU");
                 System.out.println("---------");
@@ -365,7 +370,7 @@ public class Hotel {
          String name = in.readLine();
          System.out.print("\tEnter password: ");
          String password = in.readLine(); 
-         String type="Customer";
+         String type = "Customer";
 			String query = String.format("INSERT INTO USERS (name, password, userType) VALUES ('%s','%s', '%s')", name, password, type);
          esql.executeUpdate(query);
          System.out.println ("User successfully created with userID = " + esql.getNewUserID("SELECT last_value FROM users_userID_seq"));
@@ -401,11 +406,106 @@ public class Hotel {
 // Rest of the functions definition go in here
 
    /*
+      Helper function to print the table in a neater way, allowing the user
+      to better see the columns and fields in a nice tabled response.
+
+      We decided to do this over executeQueryAndPrint because it is messy and
+      hard to tell what is going on.
+
+      Credit to: https://stackoverflow.com/questions/38623194/jdbc-format-resultset-as-tabular-string
+   */
+   public void executeQueryAndPrettyPrint(String query) throws SQLException {
+
+      StringBuilder stringResponse = new StringBuilder();
+
+      // Creates a statement object based on our connection
+      Statement stmt = this._connection.createStatement();
+
+      // Execute query argument and save in ResultSet
+      ResultSet res = stmt.executeQuery(query);
+
+      // Get metadata to know how to format this thing lol
+      ResultSetMetaData meta = res.getMetaData();
+
+      // save metadata
+      int tot_cols = meta.getColumnCount();
+      int[] colDisplaySizes = new int[tot_cols];
+      String[] colDisplayLabels = new String[tot_cols];
+      int tot_rows = 0;
+
+      stringResponse.append("\n");
+
+      for (int i = 0; i < tot_cols; i++) {
+         
+         colDisplaySizes[i] = meta.getColumnLabel(i + 1).length() + 5;
+         colDisplayLabels[i] = meta.getColumnLabel(i + 1);
+
+         // // cuts off 
+         if (colDisplayLabels[i].length() > colDisplaySizes[i]) {
+            colDisplayLabels[i] = colDisplayLabels[i].substring(0, colDisplaySizes[i]);
+         }
+
+         for (int j = 0; j < colDisplaySizes[i] + 3; j++) {
+            stringResponse.append("-");
+         }
+      }
+      stringResponse.append("--\n");
+
+      // print column row
+      for (int i = 0; i < tot_cols; i++) {
+         stringResponse.append(
+            String.format("| %" + colDisplaySizes[i] + "s ", colDisplayLabels[i])
+         );
+      }
+      stringResponse.append("|\n");
+
+      StringBuilder hline = new StringBuilder();
+      
+      for (int i = 0; i < tot_cols; i++) {
+         for (int j = 0; j < colDisplaySizes[i] + 3; j++) {
+            hline.append("-");
+         }
+      }
+      hline.append("--\n");
+
+      stringResponse.append(hline);
+
+      // System.out.print("printing horizontal line header\n");
+      // print the response - untested thoroughly
+      while (res.next()) {
+
+         tot_rows += 1;
+         for (int i = 0; i < tot_cols; i++) {
+
+            String resString = res.getString(i + 1);
+            if (resString.length() > colDisplayLabels[i].length() + 5) {
+               resString = resString.substring(0, colDisplayLabels[i].length() + 2) + "...";
+            }
+
+            stringResponse.append(
+               String.format("| %" + colDisplaySizes[i] + "s ", resString)
+            );
+         }
+         stringResponse.append("|\n");
+      }
+
+      stringResponse.append(hline);
+
+      // print response length
+      stringResponse.append(
+         String.format("  -- Rows: %s\n\n", tot_rows)
+      );
+
+      stmt.close();
+
+      System.out.print(stringResponse);
+   }
+
+   /*
     * Browse list of hotels within 30 units distance of user 
     * Ask for user latitude and longitude 
     *
     */
-
 
    /*
    // Method to calculate euclidean distance between two latitude, longitude pairs. 
@@ -416,9 +516,8 @@ public class Hotel {
       return Math.sqrt(t1 + t2); 
    }
    
-    */
-
-
+   */
+   // DONE
    public static void viewHotels(Hotel esql) {
       try {
          System.out.print("\tEnter latitude: ");
@@ -426,15 +525,15 @@ public class Hotel {
          System.out.print("\tEnter longitude: ");
          double user_long = Double.parseDouble(in.readLine());
 
-         // System.out.print(String.format("string lat: %f\n", user_lat));
-         // System.out.print(String.format("string long: %f\n", user_long));
-
          // hotel name adds too many empty characters so put it at the end
          // we don't include the managerid since that's not something users need to know 
-         String query = String.format("SELECT H.hotelID, H.latitude, H.longitude, H.dateEstablished, H.hotelName FROM HOTEL H WHERE calculate_distance(%f, %f, H.latitude, H.longitude) <= 30", user_lat, user_long);
-         // String query = String.format("SELECT * FROM HOTEL H WHERE calculate_distance(%f, %f, H.latitude, H.longitude) <= 30", user_lat, user_long);
+         String query = "" +
+            "SELECT H.hotelID, H.latitude, H.longitude, H.dateEstablished, H.hotelName \n" +
+            "FROM HOTEL H \n" +
+            "WHERE calculate_distance(%f, %f, H.latitude, H.longitude) <= 30;\n";
+         query = String.format(query, user_lat, user_long);
 
-         esql.executeQueryAndPrintResult(query);
+         esql.executeQueryAndPrettyPrint(query); // prints the table in a nicer way
 
          return; 
       }catch(Exception e){
@@ -443,7 +542,7 @@ public class Hotel {
       }
    }
 
-
+   // DONE
    public static void viewRooms(Hotel esql) {
       try {
          System.out.print("\tEnter hotel id: ");
@@ -456,10 +555,10 @@ public class Hotel {
          query += String.format(" FROM Rooms R, RoomBookings B");
          query += String.format(" WHERE R.hotelID=%d AND B.hotelID=R.hotelID AND B.roomNumber=R.roomNumber;", hotel_id);
 
-         esql.executeQueryAndPrintResult(query);
+         esql.executeQueryAndPrettyPrint(query);
 
          return; 
-      }catch(Exception e){
+      } catch(Exception e){
          System.err.println (e.getMessage ());
          return;
       }
@@ -469,27 +568,310 @@ public class Hotel {
       try {
          System.out.print("\tEnter hotel id: ");
          int hotel_id = Integer.parseInt(in.readLine());
-         System.out.print("\tEnter room id: ");
+         System.out.print("\tEnter room number: ");
          int room_id = Integer.parseInt(in.readLine());
-         System.out.print("\tEnter booking date (mm/dd/yyyy): ");
-         String view_date = in.readLine();
+         System.out.print("\tEnter your preferred booking date (mm/dd/yyyy): ");
+         String book_date = in.readLine();
+
+         String availabilityQuery = "" +
+            "SELECT A.hotelID, A.roomNumber, B.bookingDate \n" +
+            "FROM Rooms A, RoomBookings B \n" +
+            "WHERE B.bookingDate = '%s' \n" + // book_date
+            "AND B.hotelID = %d \n" + // hotel_id
+            "AND A.hotelID = %d \n" + // hotel_id
+            "AND A.roomNumber = B.roomNumber \n" +
+            "AND A.roomNumber = %d; \n"; // room_id
+
+         availabilityQuery = String.format(
+            availabilityQuery,
+            book_date,
+            hotel_id,
+            hotel_id,
+            room_id
+         );
 
          // write the sql query 
-         esql.executeQueryAndPrintResult(query);
+         int availabilityResponse = esql.executeQuery(availabilityQuery);
+
+         // // to test
+         // System.out.print(String.format("res length: %d", availabilityResponse));
+
+         // if empty we should be good to book
+         if (availabilityResponse != 0) {
+            
+            String errorString = "\n  -- Sorry. Room %d in hotel %d is not available for date \"%s\".\n" +
+            "    You may view the room availability with option 2 in the main menu. Thank you.\n\n";
+            System.out.print(
+               String.format(errorString, room_id, hotel_id, book_date)
+            );
+            return;
+         }
+         
+         // in this case, it is available
+         String priceQuery = "" +
+            "SELECT DISTINCT A.price \n" +
+            "FROM Rooms A \n" +
+            "WHERE A.roomNumber = %d \n" +
+            "AND A.hotelID = %d; \n"; 
+
+         priceQuery = String.format(
+            priceQuery, room_id, hotel_id
+         );
+
+         // to check if room exists in hotel
+         int priceResponse = esql.executeQueryAndPrintResult(priceQuery);
+
+         // this suggests no room in given hotel id
+         if (priceResponse == 0) {
+            String errorString = "  -- Sorry. Room %d is not available in hotel %d" +
+            "    You may view the room availability with option 2 in the main menu. Thank you.\n\n";
+            System.out.print(
+               String.format(errorString, room_id, hotel_id)
+            );
+            return;
+         }
+
+         // here is the perfect case, now we must fetch the price
+         // we know there is 1 row at least, so we can fetch
+
+         System.out.print("Proceed? (Y/N): ");
+         String proceedResponse = "";
+
+         boolean cont = false;
+
+         while (!(proceedResponse.toLowerCase() == "Y") && !(proceedResponse.toLowerCase() == "N")) {
+            proceedResponse = in.readLine();
+
+            if (proceedResponse.toLowerCase().contains("y")) {
+               cont = true;
+               break;
+            }
+            else if (proceedResponse.toLowerCase().contains("n")) {
+               break;
+            }
+            
+            // System.out.println(proceedResponse);
+            System.out.print("[ERROR] Proceed? (Y/N): ");
+         }
+
+         if (!cont) {
+            return;
+         }
+
+         // we need to get their userID
+
+         String insertQuery = "INSERT INTO RoomBookings(customerID, hotelID, roomNumber, bookingDate) \n" +
+            "VALUES (%d, %d, %d, '%s') \n";
+         insertQuery = String.format(
+            insertQuery,
+            esql._authorisedUser,
+            hotel_id,
+            room_id,
+            book_date
+         );
+
+         // System.out.print(insertQuery);
+
+         esql.executeUpdate(insertQuery);
+
+         System.out.print("\n   -- Thank you for booking! \n\n");
 
          return; 
-      }catch(Exception e){
+      } catch (Exception e) {
          System.err.println (e.getMessage ());
          return;
       }
 
    }
-   public static void viewRecentBookingsfromCustomer(Hotel esql) {}
-   public static void updateRoomInfo(Hotel esql) {}
-   public static void viewRecentUpdates(Hotel esql) {}
+
+   public static void viewRecentBookingsfromCustomer(Hotel esql) {
+
+      try {
+         String bookingInfoQuery = "" +
+            "SELECT A.hotelID, A.roomNumber, B.price, A.bookingDate \n" +
+            "FROM RoomBookings A, Rooms B \n" +
+            "WHERE B.hotelID = A.hotelID \n" +
+            "AND A.roomNumber = B.roomNumber \n " +
+            "AND A.customerID = %d \n" +
+            "LIMIT 5;";
+
+         bookingInfoQuery = String.format(
+            bookingInfoQuery,
+            esql._authorisedUser
+         );
+
+         esql.executeQueryAndPrettyPrint(bookingInfoQuery);
+
+         return; 
+      } catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+   }
+   
+   public static void updateRoomInfo(Hotel esql) {
+      try {
+
+         // security check...
+         String securityCheckQuery = "" +
+            "SELECT DISTINCT A.userID \n" +
+            "FROM Users A \n" +
+            "WHERE (A.userType = 'manager' OR A.userType = 'admin') \n" +
+            "AND A.userID = %d;";
+
+         securityCheckQuery = String.format(
+            securityCheckQuery,
+            esql._authorisedUser
+         );
+
+         int securityResponse = esql.executeQuery(securityCheckQuery);
+
+         if (securityResponse == 0) {
+            System.out.print("  - Permission Error: You are not allowed to perform this operation.\n\n");
+            return;
+         }
+         
+         // manager successfully identified
+
+         // identifying info
+         System.out.print("\tEnter hotel id: ");
+         int hotelID = Integer.parseInt(in.readLine());
+         System.out.print("\tEnter room number: ");
+         int roomNumber = Integer.parseInt(in.readLine());
+
+         // now we need to check whether they can manage the hotel they chose...
+         String hotelsManagedQuery = "" +
+            "SELECT DISTINCT A.hotelID \n" +
+            "FROM Hotel A \n" +
+            "WHERE A.managerUserID = %d \n" +
+            "AND A.hotelID = %d; \n";
+
+         hotelsManagedQuery = String.format(
+            hotelsManagedQuery,
+            esql._authorisedUser,
+            hotelID
+         );
+
+         // now we need to check whether they are an admin...
+         String isAdminQuery = "" +
+            "SELECT * \n" +
+            "FROM  Users A \n" +
+            "WHERE A.userID = %d \n" +
+            "AND A.userType = 'admin'; \n";
+
+         isAdminQuery = String.format(
+            isAdminQuery,
+            esql._authorisedUser
+         );
+
+         int hotelsManagedQueryResponse = esql.executeQuery(hotelsManagedQuery);
+         int isAdminResponse = esql.executeQuery(isAdminResponse);
+
+         if (hotelsManagedQueryResponse == 0 && isAdminResponse == 0) {
+            System.out.print("  - Permission Error: You are not allowed to perform this operation in hotels you do not manage.\n\n");
+            return;
+         }
+
+         // updates
+         System.out.print("\tEnter new price: ");
+         int newPrice = Integer.parseInt(in.readLine());
+         System.out.print("\tEnter new image url: ");
+         String newImageUrl = in.readLine();
+
+         String updateRoomsQuery = "" +
+            "UPDATE Rooms \n" +
+            "SET price = %d, imageURL = '%s' \n" +
+            "WHERE hotelID = %d \n" +
+            "AND roomNumber = %d \n";
+
+         updateRoomsQuery = String.format(
+            updateRoomsQuery,
+            newPrice,
+            newImageUrl,
+            hotelID,
+            roomNumber
+         );
+
+         String updateLogQuery = "" +
+            "INSERT INTO RoomUpdatesLog(managerID, hotelID, roomNumber, updatedOn) \n" +
+            "VALUES (%d, %d, %d, '%s'); \n";
+
+         // credit: https://www.tutorialkart.com/java/how-to-get-current-date-in-mm-dd-yyyy-format-in-java/
+         LocalDate currDate = LocalDate.now();
+         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+         String date = currDate.format(formatter);
+
+         updateLogQuery = String.format(
+            updateLogQuery,
+            esql._authorisedUser,
+            hotelID,
+            roomNumber,
+            date
+         );
+
+         esql.executeUpdate(updateRoomsQuery);
+         System.out.print("\n   -- Updated Rooms successfully! \n\n");
+         esql.executeUpdate(updateLogQuery);
+         System.out.print("\n   -- Updated Log successfully! \n\n");
+
+         return; 
+      } catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+   }
+   
+   public static void viewRecentUpdates(Hotel esql) {
+      try {
+         // security check...
+         String securityCheckQuery = "" +
+            "SELECT DISTINCT A.userID \n" +
+            "FROM Users A \n" +
+            "WHERE (A.userType = 'manager' OR A.userType = 'admin') \n" +
+            "AND A.userID = %d;";
+
+         securityCheckQuery = String.format(
+            securityCheckQuery,
+            esql._authorisedUser
+         );
+
+         int securityResponse = esql.executeQuery(securityCheckQuery);
+
+         if (securityResponse == 0) {
+            System.out.print("  - Permission Error: You are not allowed to perform this operation.\n\n");
+            return;
+         }
+
+         // we need to find all the updates with this manager userID
+
+         String latestLoginsQuery = "" +
+            "SELECT A.updateNumber, A.managerID, A.hotelID, A.roomNumber, A.updatedOn \n" +
+            "FROM RoomUpdatesLog \n" +
+            "WHERE B.hotelID = A.hotelID \n" +
+            "AND A.roomNumber = B.roomNumber \n " +
+            "AND A.customerID = %d \n" +
+            "LIMIT 5;";
+
+         latestLoginsQuery = String.format(
+            latestLoginsQuery,
+            esql._authorisedUser
+         );
+
+         esql.executeQueryAndPrettyPrint(latestLoginsQuery);
+
+         return; 
+      } catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+   }
+   
    public static void viewBookingHistoryofHotel(Hotel esql) {}
+   
    public static void viewRegularCustomers(Hotel esql) {}
+   
    public static void placeRoomRepairRequests(Hotel esql) {}
+   
    public static void viewRoomRepairHistory(Hotel esql) {}
 
 }//end Hotel

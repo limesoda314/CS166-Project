@@ -1,1 +1,5 @@
 sql/src/load_data.sql
+
+createPostgreDB.sh
+startPostgreSQL.sh
+stopPostgreDB.sh
