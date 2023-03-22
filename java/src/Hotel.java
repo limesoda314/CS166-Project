@@ -400,7 +400,50 @@ public class Hotel {
 
 // Rest of the functions definition go in here
 
-   public static void viewHotels(Hotel esql) {}
+   /*
+    * Browse list of hotels within 30 units distance of user 
+    * Ask for user latitude and longitude 
+    *
+    */
+
+
+   /*
+   // Method to calculate euclidean distance between two latitude, longitude pairs. 
+   // already declared above 
+   public double calculateDistance (double lat1, double long1, double lat2, double long2){
+      double t1 = (lat1 - lat2) * (lat1 - lat2);
+      double t2 = (long1 - long2) * (long1 - long2);
+      return Math.sqrt(t1 + t2); 
+   }
+   
+    */
+
+
+   public static void viewHotels(Hotel esql) {
+      try {
+         System.out.print("\tEnter latitude: ");
+         double user_lat = Double.parseDouble(in.readLine());
+         System.out.print("\tEnter longitude: ");
+         double user_long = Double.parseDouble(in.readLine());
+
+         // System.out.print(String.format("string lat: %f\n", user_lat));
+         // System.out.print(String.format("string long: %f\n", user_long));
+
+         // hotel name adds too many empty characters so put it at the end
+         // we don't include the managerid since that's not something users need to know 
+         String query = String.format("SELECT H.hotelID, H.latitude, H.longitude, H.dateEstablished, H.hotelName FROM HOTEL H WHERE calculate_distance(%f, %f, H.latitude, H.longitude) <= 30", user_lat, user_long);
+         // String query = String.format("SELECT * FROM HOTEL H WHERE calculate_distance(%f, %f, H.latitude, H.longitude) <= 30", user_lat, user_long);
+
+         esql.executeQueryAndPrintResult(query);
+
+         return; 
+      }catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+   }
+
+
    public static void viewRooms(Hotel esql) {}
    public static void bookRooms(Hotel esql) {}
    public static void viewRecentBookingsfromCustomer(Hotel esql) {}
