@@ -550,10 +550,10 @@ public class Hotel {
          System.out.print("\tEnter booking date (mm/dd/yyyy): ");
          String view_date = in.readLine();
 
-         String query = "SELECT R.price, R.roomNumber,"; 
-         query += String.format(" CASE WHEN (B.bookingdate!='%s') THEN 'open' ELSE 'reserved' END as Status", view_date); 
+         String query = "SELECT DISTINCT R.price, R.roomNumber, "; 
+         query += String.format(" CASE WHEN (NOT EXISTS (SELECT * FROM RoomBookings A, Rooms C WHERE A.bookingDate='%s' AND A.roomNumber=R.roomNumber AND A.roomNumber = C.roomNumber AND A.hotelID = C.hotelID )) THEN 'open' ELSE 'reserved' END as Status", view_date); 
          query += String.format(" FROM Rooms R, RoomBookings B");
-         query += String.format(" WHERE R.hotelID=%d AND B.hotelID=R.hotelID AND B.roomNumber=R.roomNumber;", hotel_id);
+         query += String.format(" WHERE R.hotelID=%d AND B.hotelID=R.hotelID", hotel_id);
 
          esql.executeQueryAndPrettyPrint(query);
 
@@ -658,8 +658,6 @@ public class Hotel {
             return;
          }
 
-         // we need to get their userID
-
          String insertQuery = "INSERT INTO RoomBookings(customerID, hotelID, roomNumber, bookingDate) \n" +
             "VALUES (%d, %d, %d, '%s') \n";
          insertQuery = String.format(
@@ -684,6 +682,7 @@ public class Hotel {
 
    }
 
+   // TODO
    public static void viewRecentBookingsfromCustomer(Hotel esql) {
 
       try {
@@ -765,7 +764,7 @@ public class Hotel {
          );
 
          int hotelsManagedQueryResponse = esql.executeQuery(hotelsManagedQuery);
-         int isAdminResponse = esql.executeQuery(isAdminResponse);
+         int isAdminResponse = esql.executeQuery(isAdminQuery);
 
          if (hotelsManagedQueryResponse == 0 && isAdminResponse == 0) {
             System.out.print("  - Permission Error: You are not allowed to perform this operation in hotels you do not manage.\n\n");
@@ -780,7 +779,7 @@ public class Hotel {
 
          String updateRoomsQuery = "" +
             "UPDATE Rooms \n" +
-            "SET price = %d, imageURL = '%s' \n" +
+            "SET price = %d, imageURL = '%s', hotelID = %d, roomNumber = %d \n" +
             "WHERE hotelID = %d \n" +
             "AND roomNumber = %d \n";
 
@@ -788,6 +787,8 @@ public class Hotel {
             updateRoomsQuery,
             newPrice,
             newImageUrl,
+            hotelID,
+            roomNumber,
             hotelID,
             roomNumber
          );
@@ -844,20 +845,19 @@ public class Hotel {
 
          // we need to find all the updates with this manager userID
 
-         String latestLoginsQuery = "" +
+         String latestUpdatesQuery = "" +
             "SELECT A.updateNumber, A.managerID, A.hotelID, A.roomNumber, A.updatedOn \n" +
-            "FROM RoomUpdatesLog \n" +
-            "WHERE B.hotelID = A.hotelID \n" +
-            "AND A.roomNumber = B.roomNumber \n " +
-            "AND A.customerID = %d \n" +
-            "LIMIT 5;";
+            "FROM RoomUpdatesLog A \n" +
+            "WHERE A.managerID = %d \n" +
+            "AND EXISTS (SELECT * FROM Hotel B WHERE B.managerUserID=A.managerID AND B.hotelID=A.hotelID)\n" +
+            "LIMIT 5; \n";
 
-         latestLoginsQuery = String.format(
-            latestLoginsQuery,
+         latestUpdatesQuery = String.format(
+            latestUpdatesQuery,
             esql._authorisedUser
          );
 
-         esql.executeQueryAndPrettyPrint(latestLoginsQuery);
+         esql.executeQueryAndPrettyPrint(latestUpdatesQuery);
 
          return; 
       } catch(Exception e){
@@ -866,13 +866,275 @@ public class Hotel {
       }
    }
    
-   public static void viewBookingHistoryofHotel(Hotel esql) {}
+   public static void viewBookingHistoryofHotel(Hotel esql) {
+      try {
+
+         // security check...
+         String securityCheckQuery = "" +
+            "SELECT DISTINCT A.userID \n" +
+            "FROM Users A \n" +
+            "WHERE (A.userType = 'manager' OR A.userType = 'admin') \n" +
+            "AND A.userID = %d;";
+
+         securityCheckQuery = String.format(
+            securityCheckQuery,
+            esql._authorisedUser
+         );
+
+         int securityResponse = esql.executeQuery(securityCheckQuery);
+
+         if (securityResponse == 0) {
+            System.out.print("  - Permission Error: You are not allowed to perform this operation.\n\n");
+            return;
+         }
+
+         String bookingInfoQuery = "" +
+            "SELECT A.hotelID, A.roomNumber, B.price, A.bookingDate \n" +
+            "FROM RoomBookings A, Rooms B \n" +
+            "WHERE B.hotelID = A.hotelID \n" +
+            "AND A.roomNumber = B.roomNumber \n " +
+            "AND EXISTS (SELECT * FROM Hotel C WHERE C.managerUserID = %d AND B.hotelID = C.hotelID) \n" +
+            "LIMIT 5;";
+
+         bookingInfoQuery = String.format(
+            bookingInfoQuery,
+            esql._authorisedUser
+         );
+
+         esql.executeQueryAndPrettyPrint(bookingInfoQuery);
+
+         return; 
+      } catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+   }
    
-   public static void viewRegularCustomers(Hotel esql) {}
+   public static void viewRegularCustomers(Hotel esql) {
+      try {
+         // security check...
+         String securityCheckQuery = "" +
+            "SELECT DISTINCT A.userID \n" +
+            "FROM Users A \n" +
+            "WHERE (A.userType = 'manager' OR A.userType = 'admin') \n" +
+            "AND A.userID = %d;";
+
+         securityCheckQuery = String.format(
+            securityCheckQuery,
+            esql._authorisedUser
+         );
+
+         int securityResponse = esql.executeQuery(securityCheckQuery);
+
+         if (securityResponse == 0) {
+            System.out.print("  - Permission Error: You are not allowed to perform this operation.\n\n");
+            return;
+         }
+
+         String viewMostBookingCustomersQuery = "" +
+            "SELECT D.hotelID, A.userID, A.name, COUNT(B.customerID) \n" +
+            "FROM Hotel D, Users A, RoomBookings B \n" +
+            "WHERE A.userID = B.customerID \n" +
+            "AND D.hotelID = B.hotelID \n" +
+            "AND EXISTS (SELECT * FROM Hotel C WHERE C.managerUserID = %d AND D.hotelID = C.hotelID AND B.hotelID = C.hotelID) \n" +
+            "GROUP BY A.userID, D.hotelID \n" +
+            "ORDER BY COUNT(B.customerID) DESC \n" +
+            "LIMIT 5; \n";
+         
+         viewMostBookingCustomersQuery = String.format(
+            viewMostBookingCustomersQuery,
+            esql._authorisedUser
+         );
+
+         esql.executeQueryAndPrettyPrint(viewMostBookingCustomersQuery);
+
+         return;
+      } catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+
+   }
    
-   public static void placeRoomRepairRequests(Hotel esql) {}
+   public static void placeRoomRepairRequests(Hotel esql) {
+      try {
+         // security check...
+         String securityCheckQuery = "" +
+            "SELECT DISTINCT A.userID \n" +
+            "FROM Users A \n" +
+            "WHERE (A.userType = 'manager' OR A.userType = 'admin') \n" +
+            "AND A.userID = %d;";
+
+         securityCheckQuery = String.format(
+            securityCheckQuery,
+            esql._authorisedUser
+         );
+
+         int securityResponse = esql.executeQuery(securityCheckQuery);
+
+         if (securityResponse == 0) {
+            System.out.print("  - Permission Error: You are not allowed to perform this operation.\n\n");
+            return;
+         }
    
-   public static void viewRoomRepairHistory(Hotel esql) {}
+         System.out.print("\tEnter hotel id: ");
+         int hotelID = Integer.parseInt(in.readLine());
+         System.out.print("\tEnter room number: ");
+         int roomNumber = Integer.parseInt(in.readLine());
+         System.out.print("\tEnter the maintenance company ID: ");
+         int companyID = Integer.parseInt(in.readLine());
+
+         // Check if they manage the hotel
+         String hotelManagedQuery = "" +
+            "SELECT A.hotelID \n" +
+            "FROM Hotel A \n" +
+            "WHERE A.hotelID = %d \n" + // hotelID
+            "AND A.managerUserID = %d \n"; // managerUserID
+
+         hotelManagedQuery = String.format(
+            hotelManagedQuery,
+            hotelID,
+            esql._authorisedUser
+         );
+
+         int hotelManagedResponse = esql.executeQuery(hotelManagedQuery);
+
+         if (hotelManagedResponse == 0) {
+            System.out.print(
+               "\n  - Sorry. You cannot place repair requests on hotels you do not manage.\n\n"
+            );
+            return;
+         }
+
+         // Check if room repair request has already been made for the current room/hotel by companyID
+         String alreadyMadeQuery = "" +
+         "SELECT A.requestNumber \n" +
+         "FROM RoomRepairRequests A \n" +
+         "WHERE A.repairID = (SELECT B.repairID \n" +
+         "                    FROM RoomRepairs B \n" +
+         "                    WHERE B.companyID = %d \n" +
+         "                    AND   B.hotelID = %d \n" +
+         "                    AND   B.roomNumber = %d); \n";
+
+         alreadyMadeQuery = String.format(
+            alreadyMadeQuery,
+            companyID,
+            hotelID,
+            roomNumber
+         );
+
+         int alreadyMadeResponse = esql.executeQuery(alreadyMadeQuery);
+
+         if (alreadyMadeResponse != 0) {
+            System.out.print(
+               "\n  - Sorry. This request from the company to the particular hotel and room already exists.\n\n"
+            );
+            return;
+         }
+
+         // Check if the company ID exists for given hotel and room number combination
+         String availabilityQuery = "" +
+            "SELECT A.repairID \n" +
+            "FROM RoomRepairs A \n" +
+            "WHERE A.companyID = %d \n" + // companyID
+            "AND A.hotelID = %d \n" + // hotelID
+            "AND A.roomNumber = %d; \n"; // roomNumber
+
+         availabilityQuery = String.format(
+            availabilityQuery,
+            companyID,
+            hotelID,
+            roomNumber
+         );
+
+         // write the sql query 
+         int availabilityResponse = esql.executeQuery(availabilityQuery);
+
+         if (availabilityResponse == 0) {
+            System.out.print(
+               String.format(
+                  "\n  - Sorry. Room %d in hotel %d is not currently repaired by company %d\n\n",
+                  roomNumber,
+                  hotelID,
+                  companyID
+               )
+            );
+            return;
+         }
+
+         String maintenanceRequestQuery = "" +
+         "INSERT INTO RoomRepairRequests(managerID, repairID) \n" +
+         "VALUES (%d, (SELECT B.repairID \n" +
+         "             FROM roomRepairs B \n" +
+         "             WHERE B.companyID=%d \n" +
+         "             AND B.hotelID=%d \n" +
+         "             AND B.roomNumber=%d)); \n";
+
+         maintenanceRequestQuery = String.format(
+            maintenanceRequestQuery,
+            esql._authorisedUser,
+            companyID,
+            hotelID,
+            roomNumber
+         );
+
+         esql.executeUpdate(maintenanceRequestQuery);
+
+         System.out.print(
+            "\n  - Updated repair requests successfully\n\n"
+         );
+
+         return;
+      } catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+   }
+   
+   public static void viewRoomRepairHistory(Hotel esql) {
+      try {
+         // security check...
+         String securityCheckQuery = "" +
+            "SELECT DISTINCT A.userID \n" +
+            "FROM Users A \n" +
+            "WHERE (A.userType = 'manager' OR A.userType = 'admin') \n" +
+            "AND A.userID = %d;";
+
+         securityCheckQuery = String.format(
+            securityCheckQuery,
+            esql._authorisedUser
+         );
+
+         int securityResponse = esql.executeQuery(securityCheckQuery);
+
+         if (securityResponse == 0) {
+            System.out.print("  - Permission Error: You are not allowed to perform this operation.\n\n");
+            return;
+         }
+
+         // Check if room repair request has already been made for the current room/hotel by companyID
+         String repairHistoryQuery = "" +
+         "SELECT B.companyID, B.hotelID, B.roomNumber, B.repairDate \n" +
+         "FROM RoomRepairRequests A, RoomRepairs B \n" +
+         "WHERE A.repairID = B.repairID \n" +
+         "AND EXISTS (SELECT D.hotelID \n" +
+         "            FROM Hotel D \n" +
+         "            WHERE D.hotelID = B.hotelID \n" +
+         "            AND D.managerUserID = %d); \n"; // authorizedUser
+
+         repairHistoryQuery = String.format(
+            repairHistoryQuery,
+            esql._authorisedUser
+         );
+
+         esql.executeQueryAndPrettyPrint(repairHistoryQuery);
+
+         return;
+      } catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+   }
 
 }//end Hotel
 
