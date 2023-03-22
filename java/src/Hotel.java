@@ -444,8 +444,46 @@ public class Hotel {
    }
 
 
-   public static void viewRooms(Hotel esql) {}
-   public static void bookRooms(Hotel esql) {}
+   public static void viewRooms(Hotel esql) {
+      try {
+         System.out.print("\tEnter hotel id: ");
+         int hotel_id = Integer.parseInt(in.readLine());
+         System.out.print("\tEnter booking date (mm/dd/yyyy): ");
+         String view_date = in.readLine();
+
+         String query = "SELECT R.price, R.roomNumber,"; 
+         query += String.format(" CASE WHEN (B.bookingdate!='%s') THEN 'open' ELSE 'reserved' END as Status", view_date); 
+         query += String.format(" FROM Rooms R, RoomBookings B");
+         query += String.format(" WHERE R.hotelID=%d AND B.hotelID=R.hotelID AND B.roomNumber=R.roomNumber;", hotel_id);
+
+         esql.executeQueryAndPrintResult(query);
+
+         return; 
+      }catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+   }
+
+   public static void bookRooms(Hotel esql) {
+      try {
+         System.out.print("\tEnter hotel id: ");
+         int hotel_id = Integer.parseInt(in.readLine());
+         System.out.print("\tEnter room id: ");
+         int room_id = Integer.parseInt(in.readLine());
+         System.out.print("\tEnter booking date (mm/dd/yyyy): ");
+         String view_date = in.readLine();
+
+         // write the sql query 
+         esql.executeQueryAndPrintResult(query);
+
+         return; 
+      }catch(Exception e){
+         System.err.println (e.getMessage ());
+         return;
+      }
+
+   }
    public static void viewRecentBookingsfromCustomer(Hotel esql) {}
    public static void updateRoomInfo(Hotel esql) {}
    public static void viewRecentUpdates(Hotel esql) {}
